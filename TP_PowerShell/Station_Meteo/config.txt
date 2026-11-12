@@ -1,0 +1,5 @@
+Systeme:Station meteo
+Capteur 1: Temperature
+Capteur 2: Humidite
+Frequence: 10 secondes
+ Etat: Actif

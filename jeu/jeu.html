@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Bodycam x COD Zombies - Enhanced Edition</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* Effet Bodycam / Fisheye / Vignette sombre renforcé */
+        .bodycam-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 180px rgba(0,0,0,0.98), inset 0 0 380px rgba(0,0,0,0.95);
+            background: radial-gradient(circle, rgba(0,0,0,0) 28%, rgba(0,0,0,0.95) 100%);
+            z-index: 5;
+        }
+
+        #damage-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 120px rgba(255, 0, 0, 0);
+            z-index: 6;
+            transition: box-shadow 0.15s ease;
+        }
+
+        #hud {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            color: #00ff66;
+            font-size: 16px;
+            text-shadow: 0 0 8px #00ff66;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #rec {
+            color: #ff0000;
+            font-weight: bold;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.1; }
+            100% { opacity: 1; }
+        }
+
+        #cod-stats {
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
+            color: #ffaa00;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 8px #ffaa00;
+            pointer-events: none;
+            z-index: 10;
+            line-height: 1.4;
+        }
+
+        #stats {
+            position: absolute;
+            bottom: 25px;
+            right: 25px;
+            color: #ffffff;
+            font-size: 19px;
+            text-align: right;
+            text-shadow: 0 0 6px #000;
+            pointer-events: none;
+            z-index: 10;
+            line-height: 1.5;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+            transition: transform 0.1s ease, opacity 0.1s ease;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(1, 2, 1, 0.96);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            cursor: pointer;
+            z-index: 30;
+        }
+
+        #instructions h1 {
+            font-size: 38px;
+            margin-bottom: 10px;
+            letter-spacing: 3px;
+            color: #ff2222;
+            text-shadow: 0 0 15px rgba(255,0,0,0.6);
+        }
+
+        #instructions p {
+            font-size: 16px;
+            line-height: 1.8;
+            text-align: center;
+            max-width: 650px;
+            color: #ccc;
+        }
+
+        #flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 15;
+            transition: opacity 0.03s ease-out;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div class="bodycam-overlay"></div>
+    <div id="damage-overlay"></div>
+    <div id="crosshair"></div>
+    <div id="flash"></div>
+
+    <div id="hud">
+        <span id="rec">● REC</span> [AXON BODYCAM PRO] - <span id="clock">00:00:00</span><br>
+        LOC: ST. JUDE APOCALYPTIC ER - SECTOR 7
+    </div>
+
+    <div id="cod-stats">
+        MANCHE : <span id="wave">1</span><br>
+        POINTS : $<span id="points">0</span>
+    </div>
+
+    <div id="stats">
+        MUNITIONS : <span id="ammo">12</span> / 12<br>
+        SANTÉ : <span id="health">100</span>%<br>
+        ZOMBIES RESTANTS : <span id="zombies-left">0</span>
+    </div>
+
+    <div id="instructions">
+        <h1>BODYCAM : APOCALYPTIC HOSPITAL</h1>
+        <p>
+            <strong>CLIQUEZ POUR LANCER LA MISSION</strong><br><br>
+            • <strong>ZQSD / WASD</strong> : Se déplacer<br>
+            • <strong>SOURIS</strong> : Regarder (Souris haut = Tête monte)<br>
+            • <strong>CLIC DROIT (Maintenir)</strong> : Visée ADS<br>
+            • <strong>CLIC GAUCHE</strong> : Tirer<br>
+            • <strong>R</strong> : Recharger l'arme
+        </p>
+    </div>
+
+    <script>
+        let scene, camera, renderer;
+        let flashlight, gunGroup;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        let isLocked = false;
+        let health = 100;
+        let ammo = 12;
+        let points = 0;
+        let wave = 1;
+        let zombiesInWave = 5;
+        let zombiesSpawnedInWave = 0;
+        let isReloading = false;
+        let isAiming = false;
+        let zombies = [];
+        let isGameOver = false;
+
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toTimeString().split(' ')[0];
+        }, 1000);
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x040202, 0.08);
+
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = 1.7;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x060303, 0.18);
+            scene.add(ambientLight);
+
+            const emergencyLight = new THREE.PointLight(0xff2200, 2.5, 30);
+            emergencyLight.position.set(0, 5, 0);
+            scene.add(emergencyLight);
+
+            flashlight = new THREE.SpotLight(0xf0f5ff, 18, 55, Math.PI / 4, 0.3, 1);
+            flashlight.position.set(0, 0, 0);
+            flashlight.castShadow = true;
+            camera.add(flashlight);
+            flashlight.target.position.set(0, 0, -1);
+            camera.add(flashlight.target);
+
+            createTacticalGun();
+            scene.add(camera);
+            createApocalypticHospital();
+            setupControls();
+
+            window.addEventListener('resize', onWindowResize);
+            startWave();
+            animate();
+        }
+
+        function createTacticalGun() {
+            gunGroup = new THREE.Group();
+            const matMetal = new THREE.MeshStandardMaterial({ color: 0x121315, roughness: 0.2, metalness: 0.95 });
+            const matSlide = new THREE.MeshStandardMaterial({ color: 0x222428, roughness: 0.25, metalness: 0.9 });
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.45), matSlide);
+            body.position.set(0.16, -0.19, -0.35);
+
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.18, 0.08), matMetal);
+            grip.position.set(0.16, -0.3, -0.23);
+            grip.rotation.x = -0.2;
+
+            const sight = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.02, 0.03), new THREE.MeshBasicMaterial({ color: 0x00ff44 }));
+            sight.position.set(0.16, -0.13, -0.47);
+
+            gunGroup.add(body);
+            gunGroup.add(grip);
+            gunGroup.add(sight);
+            camera.add(gunGroup);
+        }
+
+        function createApocalypticHospital() {
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x101311, roughness: 0.45 }));
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x050706, roughness: 0.9 }));
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.y = 9;
+            scene.add(ceiling);
+
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x161d19, roughness: 0.85 });
+            const w1 = new THREE.Mesh(new THREE.BoxGeometry(80, 9, 1), wallMat); w1.position.set(0, 4.5, -40); scene.add(w1);
+            const w2 = new THREE.Mesh(new THREE.BoxGeometry(80, 9, 1), wallMat); w2.position.set(0, 4.5, 40); scene.add(w2);
+            const w3 = new THREE.Mesh(new THREE.BoxGeometry(1, 9, 80), wallMat); w3.position.set(-40, 4.5, 0); scene.add(w3);
+            const w4 = new THREE.Mesh(new THREE.BoxGeometry(1, 9, 80), wallMat); w4.position.set(40, 4.5, 0); scene.add(w4);
+
+            const partMat = new THREE.MeshStandardMaterial({ color: 0x1f2823, roughness: 0.8 });
+            for (let i = -25; i <= 25; i += 25) {
+                if (i === 0) continue;
+                const part = new THREE.Mesh(new THREE.BoxGeometry(25, 9, 1.2), partMat);
+                part.position.set(i, 4.5, (i % 2 === 0) ? -15 : 15);
+                part.castShadow = true;
+                part.receiveShadow = true;
+                scene.add(part);
+            }
+
+            const debrisMat = new THREE.MeshStandardMaterial({ color: 0x303c37, roughness: 0.7 });
+            for (let i = 0; i < 12; i++) {
+                const item = new THREE.Mesh(new THREE.BoxGeometry(2, 0.9, 3.5), debrisMat);
+                item.position.set((Math.random() - 0.5) * 60, 0.45, (Math.random() - 0.5) * 60);
+                item.rotation.y = Math.random() * Math.PI;
+                item.rotation.z = (Math.random() - 0.5) * 0.4;
+                item.castShadow = true;
+                scene.add(item);
+            }
+        }
+
+        function startWave() {
+            zombiesSpawnedInWave = 0;
+            document.getElementById('wave').innerText = wave;
+            document.getElementById('zombies-left').innerText = zombiesInWave - zombiesSpawnedInWave;
+        }
+
+        function spawnZombie() {
+            if (zombiesSpawnedInWave >= zombiesInWave || health <= 0 || isGameOver) return;
+            zombiesSpawnedInWave++;
+            document.getElementById('zombies-left').innerText = (zombiesInWave - zombiesSpawnedInWave) + zombies.length;
+
+            const zombieGroup = new THREE.Group();
+            const mutantSkin = new THREE.MeshStandardMaterial({ color: 0x283424, roughness: 0.75 });
+            const patientGown = new THREE.MeshStandardMaterial({ color: 0x3d4a43, roughness: 0.85 });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.95, 0.32), patientGown);
+            torso.position.y = 1.1;
+            torso.rotation.x = 0.25;
+            torso.castShadow = true;
+            zombieGroup.add(torso);
+
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 8, 8), mutantSkin);
+            head.position.set(0, 1.75, -0.15);
+            head.castShadow = true;
+            zombieGroup.add(head);
+
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0022 });
+            const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+            eye1.position.set(0.07, 1.81, -0.27);
+            const eye2 = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+            eye2.position.set(-0.07, 1.81, -0.27);
+            zombieGroup.add(eye1);
+            zombieGroup.add(eye2);
+
+            const armGeo = new THREE.BoxGeometry(0.16, 0.82, 0.16);
+            const leftArm = new THREE.Mesh(armGeo, mutantSkin);
+            leftArm.position.set(0.4, 1.1, -0.35);
+            leftArm.rotation.x = -Math.PI / 2;
+            zombieGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeo, mutantSkin);
+            rightArm.position.set(-0.4, 1.1, -0.35);
+            rightArm.rotation.x = -Math.PI / 2;
+            zombieGroup.add(rightArm);
+
+            const legGeo = new THREE.BoxGeometry(0.18, 0.9, 0.18);
+            const leftLeg = new THREE.Mesh(legGeo, patientGown);
+            leftLeg.position.set(0.16, 0.45, 0);
+            zombieGroup.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, patientGown);
+            rightLeg.position.set(-0.16, 0.45, 0);
+            zombieGroup.add(rightLeg);
+
+            zombieGroup.userData = {
+                health: 2 + Math.floor(wave * 0.5),
+                speed: 0.034 + (wave * 0.002) + Math.random() * 0.012,
+                leftArm: leftArm,
+                rightArm: rightArm,
+                leftLeg: leftLeg,
+                rightLeg: rightLeg,
+                animOffset: Math.random() * 10
+            };
+
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 22 + Math.random() * 15;
+            zombieGroup.position.x = camera.position.x + Math.sin(angle) * dist;
+            zombieGroup.position.z = camera.position.z + Math.cos(angle) * dist;
+
+            scene.add(zombieGroup);
+            zombies.push(zombieGroup);
+        }
+
+        setInterval(() => {
+            if (zombiesSpawnedInWave < zombiesInWave) {
+                spawnZombie();
+            }
+        }, 1300);
+
+        function setupControls() {
+            const instructions = document.getElementById('instructions');
+
+            instructions.addEventListener('click', () => {
+                document.body.requestPointerLock();
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                isLocked = (document.pointerLockElement === document.body);
+                instructions.style.display = isLocked ? 'none' : 'flex';
+            });
+
+            // GESTION DE LA SOURIS : Souris vers le haut = la tête monte (axe normal direct)
+            document.addEventListener('mousemove', (e) => {
+                if (!isLocked || isGameOver) return;
+                
+                const sensitivity = 0.0017;
+                camera.rotation.y -= e.movementX * sensitivity;
+                camera.rotation.x -= e.movementY * sensitivity; // Soustraction directe : mouvement vers le haut de la souris lève la vue
+                camera.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, camera.rotation.x));
+
+                if (!isAiming) {
+                    gunGroup.position.x = 0.16 - e.movementX * 0.0004;
+                    gunGroup.position.y = -0.19 + e.movementY * 0.0004;
+                }
+            });
+
+            document.addEventListener('keydown', (e) => {
+                switch (e.code) {
+                    case 'KeyW': case 'KeyZ': moveForward = true; break;
+                    case 'KeyS': moveBackward = true; break;
+                    case 'KeyA': case 'KeyQ': moveLeft = true; break;
+                    case 'KeyD': case 'KeyRight': moveRight = true; break;
+                    case 'KeyR': reloadAmmo(); break;
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                switch (e.code) {
+                    case 'KeyW': case 'KeyZ': moveForward = false; break;
+                    case 'KeyS': case 'KeyBackward': moveBackward = false; break;
+                    case 'KeyA': case 'KeyQ': moveLeft = false; break;
+                    case 'KeyD': case 'KeyRight': moveRight = false; break;
+                }
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (!isLocked || isGameOver) return;
+                if (e.button === 2) {
+                    isAiming = true;
+                    camera.fov = 40;
+                    camera.updateProjectionMatrix();
+                    gunGroup.position.set(0, -0.14, -0.3);
+                    document.getElementById('crosshair').style.opacity = '0.2';
+                } else if (e.button === 0) {
+                    shootGun();
+                }
+            });
+
+            document.addEventListener('mouseup', (e) => {
+                if (e.button === 2 && isLocked) {
+                    isAiming = false;
+                    camera.fov = 65;
+                    camera.updateProjectionMatrix();
+                    gunGroup.position.set(0.16, -0.19, -0.35);
+                    document.getElementById('crosshair').style.opacity = '1';
+                }
+            });
+
+            document.addEventListener('contextmenu', e => e.preventDefault());
+        }
+
+        function shootGun() {
+            if (ammo <= 0 || isReloading) return;
+
+            ammo--;
+            document.getElementById('ammo').innerText = ammo;
+
+            const flash = document.getElementById('flash');
+            flash.style.opacity = '0.5';
+            setTimeout(() => flash.style.opacity = '0', 35);
+
+            gunGroup.position.z += isAiming ? 0.05 : 0.12;
+            gunGroup.rotation.x += isAiming ? 0.05 : 0.15;
+            setTimeout(() => {
+                gunGroup.position.z = 0;
+                gunGroup.rotation.x = 0;
+            }, 80);
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+            const zombieMeshes = zombies.map(z => z.children).flat();
+            const intersects = raycaster.intersectObjects(zombieMeshes);
+
+            if (intersects.length > 0) {
+                const hitObject = intersects[0].object;
+                const zombieGroup = hitObject.parent;
+
+                if (zombieGroup && zombieGroup.userData) {
+                    zombieGroup.userData.health -= isAiming ? 2 : 1;
+                    zombieGroup.position.addScaledVector(raycaster.ray.direction, 0.7);
+
+                    points += 10;
+                    document.getElementById('points').innerText = points;
+
+                    if (zombieGroup.userData.health <= 0) {
+                        scene.remove(zombieGroup);
+                        zombies = zombies.filter(z => z !== zombieGroup);
+                        points += 50;
+                        document.getElementById('points').innerText = points;
+                        document.getElementById('zombies-left').innerText = (zombiesInWave - zombiesSpawnedInWave) + zombies.length;
+
+                        if (zombiesSpawnedInWave >= zombiesInWave && zombies.length === 0) {
+                            wave++;
+                            zombiesInWave += 4;
+                            startWave();
+                        }
+                    }
+                }
+            }
+        }
+
+        function reloadAmmo() {
+            if (isReloading || ammo === 12) return;
+
+            isReloading = true;
+            document.getElementById('stats').style.color = '#ffaa00';
+            gunGroup.position.y = -0.55;
+
+            setTimeout(() => {
+                ammo = 12;
+                document.getElementById('ammo').innerText = ammo;
+                gunGroup.position.y = isAiming ? -0.14 : -0.19;
+                isReloading = false;
+                document.getElementById('stats').style.color = '#ffffff';
+            }, 1050);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            if (isLocked && !isGameOver) {
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                const currentSpeed = isAiming ? 10.0 : 18.0;
+                if (moveForward || moveBackward) velocity.z -= direction.z * currentSpeed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * currentSpeed * delta;
+
+                camera.translateX(-velocity.x * delta);
+                camera.translateZ(velocity.z * delta);
+                camera.position.y = 1.7;
+
+                if (moveForward || moveBackward || moveLeft || moveRight) {
+                    camera.position.y += Math.sin(time * 0.012) * 0.035;
+                    camera.rotation.z = Math.sin(time * 0.006) * 0.01;
+                } else {
+                    camera.rotation.z = 0;
+                }
+
+                zombies.forEach((zombie) => {
+                    const dir = new THREE.Vector3();
+                    dir.subVectors(camera.position, zombie.position);
+                    dir.y = 0;
+                    dir.normalize();
+
+                    zombie.position.addScaledVector(dir, zombie.userData.speed);
+                    zombie.lookAt(camera.position.x, camera.position.y, camera.position.z);
+
+                    const animTime = time * 0.009 + zombie.userData.animOffset;
+                    zombie.userData.leftLeg.rotation.x = Math.sin(animTime) * 0.6;
+                    zombie.userData.rightLeg.rotation.x = -Math.sin(animTime) * 0.6;
+                    zombie.userData.leftArm.rotation.z = Math.cos(animTime * 0.5) * 0.2;
+
+                    const dist = zombie.position.distanceTo(camera.position);
+                    if (dist < 1.2) {
+                        health -= 0.85;
+                        document.getElementById('health').innerText = Math.max(0, Math.floor(health));
+
+                        const dmgOverlay = document.getElementById('damage-overlay');
+                        dmgOverlay.style.boxShadow = 'inset 0 0 160px rgba(255, 0, 0, 0.85)';
+                        setTimeout(() => { dmgOverlay.style.boxShadow = 'inset 0 0 100px rgba(255, 0, 0, 0)'; }, 120);
+
+                        if (health <= 0 && !isGameOver) {
+                            isGameOver = true;
+                            alert("VOUS ÊTES MORT (GAME OVER)\n\nManche atteinte : " + wave + "\nPoints finaux : $" + points);
+                            document.exitPointerLock();
+                            location.reload();
+                        }
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+Capteur de temperature
+Capteur d'humidite
+Capteur de presence
+Microcontroleur

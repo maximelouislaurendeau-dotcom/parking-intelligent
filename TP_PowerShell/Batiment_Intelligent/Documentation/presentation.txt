@@ -1,0 +1,4 @@
+Projet : Batiment intelligent
+Objectif : Surveiller les capteurs
+Responsable : Technicien SI
+Etat : En developpement
